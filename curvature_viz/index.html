@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Konva + PyTorch</title>
+  <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+</head>
+<body>
+
+<div id="container"></div>
+
+<script>
+const width = 500;
+const height = 400;
+
+// ---- Stage + Layer ----
+const stage = new Konva.Stage({
+    container: 'container',
+    width: width,
+    height: height,
+});
+
+const layer = new Konva.Layer();
+stage.add(layer);
+
+// ---- State ----
+let points = [];
+let circles = [];
+let meanCircle = null;
+
+// ---- Throttling ----
+let lastSendTime = 0;
+let dynamicDelay = 16;
+let smoothedComputeTime = 0;
+
+// ---- Init ----
+async function init() {
+    const res = await fetch("http://127.0.0.1:8000/init");
+    const data = await res.json();
+
+    points = data.points.map(p => ({ x: p[0], y: p[1] }));
+
+    // Create draggable circles
+    circles = points.map((p, i) => {
+        const circle = new Konva.Circle({
+            x: p.x,
+            y: p.y,
+            radius: 38,
+            // fill: 'blue',
+            stroke: 'black',
+            strokeWidth: 2,
+            draggable: true,
+            shadowColor: 'black',
+            shadowBlur: 5,
+            shadowOffset: { x: 2, y: 2 },
+            shadowOpacity: 0.3,
+        });
+
+        circle.on('dragmove', () => {
+            points[i].x = circle.x();
+            points[i].y = circle.y();
+            maybeSend();
+        });
+
+        layer.add(circle);
+        return circle;
+    });
+
+    // Mean point (red)
+    meanCircle = new Konva.Circle({
+        x: data.mean[0],
+        y: data.mean[1],
+        radius: 8,
+        fill: 'red',
+        stroke: 'black',
+        strokeWidth: 2,
+    });
+
+    layer.add(meanCircle);
+
+    layer.draw();
+}
+
+init();
+
+// ---- Backend communication ----
+async function maybeSend() {
+    const now = performance.now();
+    if (now - lastSendTime < dynamicDelay) return;
+
+    lastSendTime = now;
+
+    const flat = new Float32Array(points.length * 2);
+
+    for (let i = 0; i < points.length; i++) {
+        flat[2*i] = points[i].x;
+        flat[2*i + 1] = points[i].y;
+    }
+
+    const res = await fetch("http://127.0.0.1:8000/compute_binary", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/octet-stream"
+        },
+        body: flat.buffer
+    });
+
+    const buffer = await res.arrayBuffer();
+    const arr = new Float32Array(buffer);
+
+    // Update mean circle position
+    meanCircle.position({
+        x: arr[0],
+        y: arr[1]
+    });
+
+    layer.batchDraw();
+
+    // ---- Adaptive throttling ----
+    const computeTime = parseFloat(res.headers.get("X-Compute-Time")) * 1000;
+    smoothedComputeTime = 0.8 * smoothedComputeTime + 0.2 * computeTime;
+    dynamicDelay = Math.max(16, smoothedComputeTime * 1.5);
+}
+</script>
+
+</body>
+</html>
