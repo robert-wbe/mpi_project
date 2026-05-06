@@ -1,0 +1,15 @@
+datasets/*
+!datasets/celeba_deep_embeddings_w_y.pt
+
+repos/*
+!repos/torch_vae
+
+trained_checkpoints/*
+!trained_checkpoints/celeba_nested_nested_gmm_4.pt
+
+
+!modern_vae/checkpoints/continued/latent_vae_epoch_150.pt
+
+models
+
+*.pyc
